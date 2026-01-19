@@ -1,78 +1,42 @@
-name: iOS Build
+name: iOS-ipa-build
 
 on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
-  build_ios:
-    name: Build iOS
+  build-ios:
+    name: 🎉 iOS Build
     runs-on: macos-latest
-    timeout-minutes: 60
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
+          architecture: x64
+      - run: flutter pub get
       
-      - name: Get Dependencies
-        run: flutter pub get
 
-      # Install the Apple Certificate and Provisioning Profile (if secrets are set)
-      # Install the Apple Certificate and Provisioning Profile (if secrets are set)
-      - name: Install Apple Certificate and Profile
-        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' }}
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          # Create variables
-          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
-          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+      - run: pod repo update
+        working-directory: ios
 
-          # Import certificate and provision profile from secrets
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+      - run: flutter build ios --release --no-codesign
 
-          # Create temporary keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      - run: mkdir Payload
+        working-directory: build/ios/iphoneos
 
-          # Import certificate to keychain
-          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t agg -k $KEYCHAIN_PATH
-          security list-keychains -s $KEYCHAIN_PATH
-          
-          # Apply provisioning profile
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - run: mv Runner.app/ Payload
+        working-directory: build/ios/iphoneos
 
-      # Build Signed IPA (if secrets exist)
-      - name: Build Signed IPA
-        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' }}
-        run: |
-          flutter build ios --release --no-codesign
-          flutter build ios --release --export-options-plist=ios/ExportOptions.plist
+      - name: Zip output
+        run: zip -qq -r -9 FlutterIpaExport.ipa Payload
+        working-directory: build/ios/iphoneos
 
-      # Build Unsigned (Fallback if no secrets)
-      - name: Build Unsigned (No Secrets)
-        if: ${{ secrets.BUILD_CERTIFICATE_BASE64 == '' }}
-        run: flutter build ios --release --no-codesign
-
-      # Upload Artifacts
-      - name: Upload iOS App Bundle
-        uses: actions/upload-artifact@v4
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
         with:
-          name: ios-app-release
-          path: build/ios/iphoneos/Runner.app
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/ios/iphoneos/FlutterIpaExport.ipa
+          tag: v1.0
+          overwrite: true
+          body: "This is first release"
