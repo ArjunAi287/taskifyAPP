@@ -63,7 +63,6 @@ jobs:
         if: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' }}
         run: |
           flutter build ios --release --no-codesign
-          # Attempting standard build which should pick up the installed profile
           flutter build ios --release --export-options-plist=ios/ExportOptions.plist
 
       # Build Unsigned (Fallback if no secrets)
